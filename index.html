@@ -1,0 +1,598 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Visa Travel Log</title>
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    <meta name="theme-color" content="#ffffff">
+    <link rel="manifest" href="manifest.json">
+    <link rel="icon" href="icon.png">
+</head>
+<body class="bg-gray-100 font-sans">
+<div class="container mx-auto p-4">
+    <h1 class="text-2xl font-bold mb-4">Visa Travel Log</h1>
+    <button id="getLocation" class="bg-green-500 text-white px-4 py-2 rounded mb-4" disabled>Log Today's Location</button>
+    <div class="mb-4">
+        <h2 class="text-xl font-semibold">Manual Entry</h2>
+        <div class="mb-2">
+            <h3 class="text-lg">Single Date</h3>
+            <input id="manualDate" type="date" class="border p-2 mr-2">
+            <input id="manualCountry" type="text" placeholder="Country" class="border p-2 mr-2">
+            <button id="addManual" class="bg-blue-500 text-white px-4 py-2 rounded">Add Entry</button>
+        </div>
+        <div>
+            <h3 class="text-lg">Date Range</h3>
+            <input id="rangeStart" type="date" class="border p-2 mr-2">
+            <input id="rangeEnd" type="date" class="border p-2 mr-2">
+            <input id="rangeCountry" type="text" placeholder="Country" class="border p-2 mr-2">
+            <button id="addRange" class="bg-blue-500 text-white px-4 py-2 rounded">Add Range</button>
+        </div>
+    </div>
+    <div class="mb-4">
+        <h2 class="text-xl font-semibold">Missed Days</h2>
+        <div id="missedDays" class="mb-2"></div>
+        <button id="fillMissed" class="bg-yellow-500 text-white px-4 py-2 rounded hidden">Fill Missed Days</button>
+    </div>
+    <div class="mb-4">
+        <h2 class="text-xl font-semibold">Travel Log Management</h2>
+        <button id="exportLog" class="bg-gray-500 text-white px-4 py-2 rounded mr-2">Export Travel Log</button>
+        <input id="importLog" type="file" accept=".json" class="hidden">
+        <button id="triggerImport" class="bg-gray-500 text-white px-4 py-2 rounded">Import Travel Log</button>
+    </div>
+    <div id="status" class="mb-4">Loading country boundaries...</div>
+    <div id="calendar" class="mb-4">
+        <h2 class="text-xl font-semibold">Travel Log</h2>
+        <table class="w-full border-collapse border">
+            <thead>
+            <tr>
+                <th class="border p-2">Date</th>
+                <th class="border p-2">Country</th>
+                <th class="border p-2">Region</th>
+                <th class="border p-2">Action</th>
+            </tr>
+            </thead>
+            <tbody id="calendarBody"></tbody>
+        </table>
+    </div>
+    <div id="summary" class="mb-4"></div>
+    <div class="mb-4">
+        <h2 class="text-xl font-semibold">Visa Limits</h2>
+        <div class="mb-2">
+            <input id="regionInput" type="text" placeholder="Region (e.g., Schengen)" class="border p-2 mr-2">
+            <input id="daysLimitInput" type="number" placeholder="Days Limit" class="border p-2 mr-2">
+            <input id="periodInput" type="number" placeholder="Period (days)" class="border p-2 mr-2">
+            <input id="notifyDaysInput" type="number" placeholder="Notify Days Before" class="border p-2 mr-2">
+            <button id="setLimit" class="bg-purple-500 text-white px-4 py-2 rounded">Set Limit</button>
+        </div>
+        <div id="visaLimits" class="mb-4">
+            <h3 class="text-lg">Current Limits</h3>
+            <table class="w-full border-collapse border">
+                <thead>
+                <tr>
+                    <th class="border p-2">Region</th>
+                    <th class="border p-2">Days Limit</th>
+                    <th class="border p-2">Period (days)</th>
+                    <th class="border p-2">Notify Days Before</th>
+                    <th class="border p-2">Action</th>
+                </tr>
+                </thead>
+                <tbody id="limitsBody"></tbody>
+            </table>
+        </div>
+    </div>
+    <div id="warnings" class="mb-4"></div>
+    <div class="mb-4">
+        <h2 class="text-xl font-semibold">Settings</h2>
+        <button id="resetAll" class="bg-red-600 text-white px-4 py-2 rounded">Reset All Data</button>
+    </div>
+</div>
+
+<script src="https://unpkg.com/@turf/turf@6/turf.min.js"></script>
+<script>
+    // EU countries for grouping (Schengen approximation)
+    const schengenCountries = ['Austria', 'Belgium', 'Bulgaria', 'Croatia', 'Czechia', 'Denmark', 'Estonia', 'Finland', 'France', 'Germany', 'Greece', 'Hungary', 'Iceland', 'Italy', 'Latvia', 'Liechtenstein', 'Lithuania', 'Luxembourg', 'Malta', 'Netherlands', 'Norway', 'Poland', 'Portugal', 'Romania', 'Slovakia', 'Slovenia', 'Spain', 'Sweden', 'Switzerland'];
+
+    // Load country boundaries
+    let countryBoundaries = null;
+    fetch('countries.geojson')
+        .then(response => {
+            if (!response.ok) throw new Error('Failed to load countries.geojson');
+            return response.json();
+        })
+        .then(data => {
+            if (!data || !data.features) throw new Error('Invalid GeoJSON format');
+            countryBoundaries = data;
+            document.getElementById('status').innerText = 'Country boundaries loaded';
+            document.getElementById('getLocation').disabled = false;
+            loadData();
+            setupPeriodicSync();
+            requestNotificationPermission();
+        })
+        .catch(error => {
+            document.getElementById('status').innerText = 'Error loading country boundaries: ' + error.message + '. Use manual entry.';
+            loadData();
+        });
+
+    // Initialize app
+    document.getElementById('getLocation').onclick = logLocation;
+    document.getElementById('addManual').onclick = addManualEntry;
+    document.getElementById('addRange').onclick = addRangeEntry;
+    document.getElementById('setLimit').onclick = setVisaLimit;
+    document.getElementById('exportLog').onclick = exportTravelLog;
+    document.getElementById('triggerImport').onclick = () => document.getElementById('importLog').click();
+    document.getElementById('importLog').onchange = importTravelLog;
+    document.getElementById('resetAll').onclick = resetAllData;
+    document.getElementById('fillMissed').onclick = fillMissedDays;
+
+    // Handle messages from service worker
+    const channel = new BroadcastChannel('visa-tracker-channel');
+    channel.onmessage = (event) => {
+        if (event.data.action === 'logLocation') {
+            logLocation((error) => {
+                channel.postMessage({
+                    action: 'logLocationResult',
+                    error: error ? error.message : null,
+                });
+            });
+        } else if (event.data.action === 'checkVisaLimits') {
+            checkVisaLimits((region, daysInPeriod, daysLimit) => {
+                channel.postMessage({
+                    action: 'visaLimitWarning',
+                    region,
+                    daysInPeriod,
+                    daysLimit,
+                });
+            });
+        }
+    };
+
+    // Setup Periodic Background Sync
+    async function setupPeriodicSync() {
+        if ('serviceWorker' in navigator && 'PeriodicSyncManager' in window) {
+            try {
+                const registration = await navigator.serviceWorker.ready;
+                await registration.periodicSync.register('periodic-log', {
+                    minInterval: 24 * 60 * 60 * 1000, // 24 hours
+                });
+                document.getElementById('status').innerText = 'Periodic sync registered';
+            } catch (error) {
+                document.getElementById('status').innerText = 'Periodic sync registration failed: ' + error.message;
+            }
+        } else {
+            document.getElementById('status').innerText = 'Periodic sync not supported. Use manual logging.';
+        }
+    }
+
+    // Request notification permission
+    async function requestNotificationPermission() {
+        if ('Notification' in window) {
+            const permission = await Notification.requestPermission();
+            if (permission === 'granted') {
+                document.getElementById('status').innerText = 'Notifications enabled';
+            } else {
+                document.getElementById('status').innerText = 'Notifications denied. Some features may be limited.';
+            }
+        }
+    }
+
+    // Load stored data and display
+    function loadData() {
+        checkMissedDays();
+        updateCalendar();
+        updateSummary();
+        updateVisaLimits();
+        checkVisaLimits();
+    }
+
+    // Get location and log to local storage
+    function logLocation(callback) {
+        document.getElementById('status').innerText = 'Getting location...';
+        if (!navigator.geolocation) {
+            document.getElementById('status').innerText = 'Geolocation not supported. Use manual entry.';
+            if (callback) callback(new Error('Geolocation not supported'));
+            return;
+        }
+
+        navigator.geolocation.getCurrentPosition(
+            (position) => {
+                const { latitude, longitude } = position.coords;
+                try {
+                    if (!countryBoundaries || !countryBoundaries.features) {
+                        throw new Error('Country boundaries not loaded. Use manual entry.');
+                    }
+
+                    const point = turf.point([longitude, latitude]);
+                    let country = 'Unknown';
+
+                    for (const feature of countryBoundaries.features) {
+                        if (!feature || !feature.geometry || !feature.properties) {
+                            console.warn('Skipping invalid GeoJSON feature:', feature);
+                            continue;
+                        }
+                        try {
+                            if (turf.booleanPointInPolygon(point, feature)) {
+                                country = feature.properties.name || feature.properties.ADMIN || 'Unknown';
+                                break;
+                            }
+                        } catch (e) {
+                            console.warn('Error processing feature:', feature, e);
+                        }
+                    }
+
+                    if (country === 'Unknown') throw new Error('Country not found. Use manual entry.');
+
+                    const today = new Date().toISOString().split('T')[0];
+                    const stored = JSON.parse(localStorage.getItem('visaTracker') || '{}');
+                    if (stored[today]) {
+                        document.getElementById('status').innerText = `Already logged ${stored[today]} for today`;
+                        if (callback) callback(null);
+                        return;
+                    }
+
+                    stored[today] = country;
+                    localStorage.setItem('visaTracker', JSON.stringify(stored));
+                    localStorage.setItem('lastLogTime', Date.now().toString());
+
+                    document.getElementById('status').innerText = `Logged ${country} for ${today}`;
+                    loadData();
+                    if (callback) callback(null);
+                } catch (error) {
+                    document.getElementById('status').innerText = 'Error: ' + error.message;
+                    if (callback) callback(error);
+                }
+            },
+            (error) => {
+                document.getElementById('status').innerText = 'Error getting location: ' + error.message + '. Use manual entry.';
+                if (callback) callback(error);
+            }
+        );
+    }
+
+    // Add manual single-date entry
+    function addManualEntry() {
+        const date = document.getElementById('manualDate').value;
+        const country = document.getElementById('manualCountry').value.trim();
+        if (!date || !country) {
+            document.getElementById('status').innerText = 'Please provide date and country';
+            return;
+        }
+
+        const stored = JSON.parse(localStorage.getItem('visaTracker') || '{}');
+        if (stored[date]) {
+            document.getElementById('status').innerText = `Already logged ${stored[date]} for ${date}`;
+            return;
+        }
+
+        stored[date] = country;
+        localStorage.setItem('visaTracker', JSON.stringify(stored));
+        localStorage.setItem('lastLogTime', Date.now().toString());
+        document.getElementById('status').innerText = `Logged ${country} for ${date}`;
+        document.getElementById('manualDate').value = '';
+        document.getElementById('manualCountry').value = '';
+        loadData();
+    }
+
+    // Add manual date range entry
+    function addRangeEntry() {
+        const startDate = document.getElementById('rangeStart').value;
+        const endDate = document.getElementById('rangeEnd').value;
+        const country = document.getElementById('rangeCountry').value.trim();
+        if (!startDate || !endDate || !country) {
+            document.getElementById('status').innerText = 'Please provide start date, end date, and country';
+            return;
+        }
+
+        const start = new Date(startDate);
+        const end = new Date(endDate);
+        if (start > end) {
+            document.getElementById('status').innerText = 'Start date must be before or equal to end date';
+            return;
+        }
+
+        const stored = JSON.parse(localStorage.getItem('visaTracker') || '{}');
+        const dates = [];
+        let current = new Date(start);
+        while (current <= end) {
+            const dateStr = current.toISOString().split('T')[0];
+            dates.push(dateStr);
+            current.setDate(current.getDate() + 1);
+        }
+
+        const existing = dates.filter(date => stored[date]);
+        if (existing.length > 0) {
+            if (!confirm(`The following dates already have entries: ${existing.join(', ')}. Overwrite them?`)) {
+                document.getElementById('status').innerText = 'Range entry cancelled';
+                return;
+            }
+        }
+
+        dates.forEach(date => {
+            stored[date] = country;
+        });
+        localStorage.setItem('visaTracker', JSON.stringify(stored));
+        localStorage.setItem('lastLogTime', Date.now().toString());
+        document.getElementById('status').innerText = `Logged ${country} for ${dates.length} days from ${startDate} to ${endDate}`;
+        document.getElementById('rangeStart').value = '';
+        document.getElementById('rangeEnd').value = '';
+        document.getElementById('rangeCountry').value = '';
+        loadData();
+    }
+
+    // Check for missed days
+    function checkMissedDays() {
+        const stored = JSON.parse(localStorage.getItem('visaTracker') || '{}');
+        const today = new Date();
+        const lastLogTime = parseInt(localStorage.getItem('lastLogTime') || '0');
+        const lastLogDate = lastLogTime ? new Date(lastLogTime) : null;
+        const missedDays = [];
+
+        if (lastLogDate) {
+            let current = new Date(lastLogDate);
+            current.setDate(current.getDate() + 1);
+            while (current < today) {
+                const dateStr = current.toISOString().split('T')[0];
+                if (!stored[dateStr]) {
+                    missedDays.push(dateStr);
+                }
+                current.setDate(current.getDate() + 1);
+            }
+        }
+
+        const missedDaysDiv = document.getElementById('missedDays');
+        const fillMissedBtn = document.getElementById('fillMissed');
+        if (missedDays.length > 0) {
+            missedDaysDiv.innerHTML = `
+          <p class="text-red-500">Missed logging for: ${missedDays.join(', ')}</p>
+          <input id="missedCountry" type="text" placeholder="Country for missed days" class="border p-2 mr-2">
+        `;
+            fillMissedBtn.classList.remove('hidden');
+        } else {
+            missedDaysDiv.innerHTML = '';
+            fillMissedBtn.classList.add('hidden');
+        }
+    }
+
+    // Fill missed days
+    function fillMissedDays() {
+        const country = document.getElementById('missedCountry').value.trim();
+        if (!country) {
+            document.getElementById('status').innerText = 'Please provide a country for missed days';
+            return;
+        }
+
+        const stored = JSON.parse(localStorage.getItem('visaTracker') || '{}');
+        const today = new Date();
+        const lastLogTime = parseInt(localStorage.getItem('lastLogTime') || '0');
+        const lastLogDate = lastLogTime ? new Date(lastLogTime) : null;
+        const missedDays = [];
+
+        if (lastLogDate) {
+            let current = new Date(lastLogDate);
+            current.setDate(current.getDate() + 1);
+            while (current < today) {
+                const dateStr = current.toISOString().split('T')[0];
+                if (!stored[dateStr]) {
+                    missedDays.push(dateStr);
+                }
+                current.setDate(current.getDate() + 1);
+            }
+        }
+
+        missedDays.forEach(date => {
+            stored[date] = country;
+        });
+        localStorage.setItem('visaTracker', JSON.stringify(stored));
+        localStorage.setItem('lastLogTime', Date.now().toString());
+        document.getElementById('status').innerText = `Logged ${country} for ${missedDays.length} missed days`;
+        document.getElementById('missedCountry').value = '';
+        loadData();
+    }
+
+    // Export travel log
+    function exportTravelLog() {
+        const stored = JSON.parse(localStorage.getItem('visaTracker') || '{}');
+        const dataStr = JSON.stringify(stored, null, 2);
+        const blob = new Blob([dataStr], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = 'travel_log.json';
+        link.click();
+        URL.revokeObjectURL(url);
+        document.getElementById('status').innerText = 'Travel log exported as travel_log.json';
+    }
+
+    // Import travel log
+    function importTravelLog(event) {
+        const file = event.target.files[0];
+        if (!file) {
+            document.getElementById('status').innerText = 'No file selected';
+            return;
+        }
+
+        const reader = new FileReader();
+        reader.onload = (e) => {
+            try {
+                const imported = JSON.parse(e.target.result);
+                if (typeof imported !== 'object' || Array.isArray(imported)) {
+                    throw new Error('Invalid travel log format');
+                }
+                const stored = JSON.parse(localStorage.getItem('visaTracker') || '{}');
+                const merged = { ...stored, ...imported };
+                localStorage.setItem('visaTracker', JSON.stringify(merged));
+                localStorage.setItem('lastLogTime', Date.now().toString());
+                document.getElementById('status').innerText = 'Travel log imported successfully';
+                document.getElementById('importLog').value = '';
+                loadData();
+            } catch (error) {
+                document.getElementById('status').innerText = 'Error importing travel log: ' + error.message;
+            }
+        };
+        reader.readAsText(file);
+    }
+
+    // Update calendar view
+    function updateCalendar() {
+        const stored = JSON.parse(localStorage.getItem('visaTracker') || '{}');
+        const tbody = document.getElementById('calendarBody');
+        tbody.innerHTML = '';
+
+        Object.entries(stored)
+            .sort(([dateA], [dateB]) => new Date(dateB) - new Date(dateA))
+            .forEach(([date, country]) => {
+                const region = schengenCountries.includes(country) ? 'Schengen' : country;
+                const row = document.createElement('tr');
+                row.innerHTML = `
+            <td class="border p-2">${date}</td>
+            <td class="border p-2">${country}</td>
+            <td class="border p-2">${region}</td>
+            <td class="border p-2">
+              <button class="bg-red-500 text-white px-2 py-1 rounded delete-btn" data-date="${date}">Delete</button>
+            </td>
+          `;
+                tbody.appendChild(row);
+            });
+
+        // Add delete button listeners
+        document.querySelectorAll('.delete-btn').forEach(btn => {
+            btn.onclick = () => {
+                const date = btn.dataset.date;
+                const stored = JSON.parse(localStorage.getItem('visaTracker') || '{}');
+                delete stored[date];
+                localStorage.setItem('visaTracker', JSON.stringify(stored));
+                document.getElementById('status').innerText = `Deleted entry for ${date}`;
+                loadData();
+            };
+        });
+    }
+
+    // Update summary of days spent
+    function updateSummary() {
+        const stored = JSON.parse(localStorage.getItem('visaTracker') || '{}');
+        const counts = {};
+        Object.entries(stored).forEach(([date, country]) => {
+            const region = schengenCountries.includes(country) ? 'Schengen' : country;
+            counts[region] = (counts[region] || 0) + 1;
+        });
+
+        let summary = '<h2 class="text-xl font-semibold">Days Spent</h2>';
+        for (const [region, days] of Object.entries(counts)) {
+            summary += `<p>${region}: ${days} days</p>`;
+        }
+        document.getElementById('summary').innerHTML = summary;
+    }
+
+    // Set visa limit
+    function setVisaLimit() {
+        const region = document.getElementById('regionInput').value.trim();
+        const daysLimit = parseInt(document.getElementById('daysLimitInput').value);
+        const period = parseInt(document.getElementById('periodInput').value);
+        const notifyDays = parseInt(document.getElementById('notifyDaysInput').value) || 0;
+        if (!region || !daysLimit || !period) {
+            document.getElementById('status').innerText = 'Please fill region, days limit, and period fields';
+            return;
+        }
+
+        const limits = JSON.parse(localStorage.getItem('visaLimits') || '{}');
+        limits[region] = { daysLimit, period, notifyDays };
+        localStorage.setItem('visaLimits', JSON.stringify(limits));
+        document.getElementById('status').innerText = `Visa limit set for ${region}`;
+        document.getElementById('regionInput').value = '';
+        document.getElementById('daysLimitInput').value = '';
+        document.getElementById('periodInput').value = '';
+        document.getElementById('notifyDaysInput').value = '';
+        loadData();
+    }
+
+    // Update visa limits table
+    function updateVisaLimits() {
+        const limits = JSON.parse(localStorage.getItem('visaLimits') || '{}');
+        const tbody = document.getElementById('limitsBody');
+        tbody.innerHTML = '';
+
+        Object.entries(limits).forEach(([region, { daysLimit, period, notifyDays }]) => {
+            const row = document.createElement('tr');
+            row.innerHTML = `
+          <td class="border p-2">${region}</td>
+          <td class="border p-2">${daysLimit}</td>
+          <td class="border p-2">${period}</td>
+          <td class="border p-2">${notifyDays || 0}</td>
+          <td class="border p-2">
+            <button class="bg-red-500 text-white px-2 py-1 rounded delete-limit-btn" data-region="${region}">Delete</button>
+          </td>
+        `;
+            tbody.appendChild(row);
+        });
+
+        // Add delete button listeners
+        document.querySelectorAll('.delete-limit-btn').forEach(btn => {
+            btn.onclick = () => {
+                const region = btn.dataset.region;
+                const limits = JSON.parse(localStorage.getItem('visaLimits') || '{}');
+                delete limits[region];
+                localStorage.setItem('visaLimits', JSON.stringify(limits));
+                document.getElementById('status').innerText = `Deleted visa limit for ${region}`;
+                loadData();
+            };
+        });
+    }
+
+    // Check visa limits and display warnings
+    function checkVisaLimits(notifyCallback) {
+        const stored = JSON.parse(localStorage.getItem('visaTracker') || '{}');
+        const limits = JSON.parse(localStorage.getItem('visaLimits') || '{}');
+        let warnings = '<h2 class="text-xl font-semibold">Visa Warnings</h2>';
+
+        for (const [region, { daysLimit, period, notifyDays = 0 }] of Object.entries(limits)) {
+            let daysInPeriod = 0;
+            const today = new Date();
+            const startDate = new Date(today);
+            startDate.setDate(today.getDate() - period);
+
+            Object.entries(stored).forEach(([date, country]) => {
+                const visitRegion = schengenCountries.includes(country) ? 'Schengen' : country;
+                if (visitRegion !== region) return;
+                const visitDate = new Date(date);
+                if (visitDate >= startDate && visitDate <= today) {
+                    daysInPeriod++;
+                }
+            });
+
+            const remainingDays = daysLimit - daysInPeriod;
+            if (daysInPeriod > daysLimit) {
+                warnings += `<p class="text-red-500">Warning: Overstayed in ${region}. ${daysInPeriod}/${daysLimit} days in last ${period} days.</p>`;
+            } else if (notifyDays > 0 && remainingDays <= notifyDays) {
+                warnings += `<p class="text-yellow-500">Warning: Approaching limit in ${region}. ${daysInPeriod}/${daysLimit} days, ${remainingDays} days remaining in last ${period} days.</p>`;
+                if (notifyCallback) {
+                    notifyCallback(region, daysInPeriod, daysLimit);
+                }
+            } else {
+                warnings += `<p>${region}: ${daysInPeriod}/${daysLimit} days in last ${period} days.</p>`;
+            }
+        }
+
+        document.getElementById('warnings').innerHTML = warnings;
+    }
+
+    // Reset all data
+    function resetAllData() {
+        if (!confirm('Are you sure you want to reset all data? This will clear all travel logs and visa limits.')) {
+            document.getElementById('status').innerText = 'Reset cancelled';
+            return;
+        }
+
+        localStorage.removeItem('visaTracker');
+        localStorage.removeItem('visaLimits');
+        localStorage.removeItem('lastLogTime');
+        document.getElementById('status').innerText = 'All data reset';
+        loadData();
+    }
+
+    // Service Worker for offline support
+    if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.register('sw.js');
+    }
+</script>
+</body>
+</html>
