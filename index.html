@@ -115,7 +115,7 @@
         });
 
     // Initialize app
-    document.getElementById('getLocation').onclick = logLocation;
+    document.getElementById('getLocation').onclick = () => logLocation();
     document.getElementById('addManual').onclick = addManualEntry;
     document.getElementById('addRange').onclick = addRangeEntry;
     document.getElementById('setLimit').onclick = setVisaLimit;
