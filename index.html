@@ -34,12 +34,6 @@
         <div id="missedDays" class="mb-2"></div>
         <button id="fillMissed" class="bg-yellow-500 text-white px-4 py-2 rounded hidden">Fill Missed Days</button>
     </div>
-    <div class="mb-4">
-        <h2 class="text-xl font-semibold">Travel Log Management</h2>
-        <button id="exportLog" class="bg-gray-500 text-white px-4 py-2 rounded mr-2">Export Travel Log</button>
-        <input id="importLog" type="file" accept=".json" class="hidden">
-        <button id="triggerImport" class="bg-gray-500 text-white px-4 py-2 rounded">Import Travel Log</button>
-    </div>
     <div id="status" class="mb-4">Loading country boundaries...</div>
     <div id="calendar" class="mb-4">
         <h2 class="text-xl font-semibold">Travel Log</h2>
@@ -83,7 +77,13 @@
     </div>
     <div id="warnings" class="mb-4"></div>
     <div class="mb-4">
-        <h2 class="text-xl font-semibold">Settings</h2>
+        <h2 class="text-xl font-semibold">Travel Log Management</h2>
+        <button id="exportLog" class="bg-gray-500 text-white px-4 py-2 rounded mr-2">Export Travel Log</button>
+        <input id="importLog" type="file" accept=".json" class="hidden">
+        <button id="triggerImport" class="bg-gray-500 text-white px-4 py-2 rounded">Import Travel Log</button>
+    </div>
+    <div class="mb-4">
+        <h2 class="text-xl font-semibold">Reset</h2>
         <button id="resetAll" class="bg-red-600 text-white px-4 py-2 rounded">Reset All Data</button>
     </div>
 </div>
