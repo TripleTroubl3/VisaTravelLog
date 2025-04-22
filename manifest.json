@@ -1,6 +1,6 @@
 {
-  "name": "Visa Travel Counter",
-  "short_name": "Visa Travel Counter",
+  "name": "Visa Travel Log",
+  "short_name": "Visa Travel Log",
   "start_url": "index.html",
   "display": "standalone",
   "background_color": "#ffffff",
