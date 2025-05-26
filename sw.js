@@ -33,7 +33,7 @@ async function performDailyLog() {
         const now = Date.now();
         const oneDay = 24 * 60 * 60 * 1000;
 
-        if (now - lastLogTime > oneDay) {
+        if (now - lastLogTime > oneDay && Notification.permission === 'granted') {
             await self.registration.showNotification('Visa Tracker', {
                 body: 'No location logged in over 24 hours. Open the app to log your location.',
                 icon: 'icon.png',
@@ -58,21 +58,23 @@ async function performDailyLog() {
         });
 
         // Check visa limits for notifications
-        await new Promise((resolve, reject) => {
-            const channel = new BroadcastChannel('visa-tracker-channel');
-            channel.postMessage({ action: 'checkVisaLimits' });
+        if (Notification.permission === 'granted') {
+            await new Promise((resolve, reject) => {
+                const channel = new BroadcastChannel('visa-tracker-channel');
+                channel.postMessage({ action: 'checkVisaLimits' });
 
-            channel.onmessage = (event) => {
-                if (event.data.action === 'visaLimitWarning') {
-                    const { region, daysInPeriod, daysLimit } = event.data;
-                    self.registration.showNotification('Visa Tracker', {
-                        body: `Approaching visa limit in ${region}: ${daysInPeriod}/${daysLimit} days used.`,
-                        icon: 'icon.png',
-                    });
-                    resolve();
-                }
-            };
-        });
+                channel.onmessage = (event) => {
+                    if (event.data.action === 'visaLimitWarning') {
+                        const { region, daysInPeriod, daysLimit } = event.data;
+                        self.registration.showNotification('Visa Tracker', {
+                            body: `Approaching visa limit in ${region}: ${daysInPeriod}/${daysLimit} days used.`,
+                            icon: 'icon.png',
+                        });
+                        resolve();
+                    }
+                };
+            });
+        }
     } catch (error) {
         console.error('Periodic sync failed:', error);
     }
